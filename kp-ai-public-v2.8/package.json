@@ -1,0 +1,8 @@
+{
+  "name": "kp-github-monitor",
+  "version": "2.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"monitor": "node scripts/monitor.mjs", "test": "node --test scripts/*.test.mjs"},
+  "dependencies": {"playwright": "1.56.1"}
+}
