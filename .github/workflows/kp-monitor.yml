@@ -1,0 +1,32 @@
+name: KP AI cloud monitor
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '2/5 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: kp-cloud-monitor
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+      MAX_ADS: '12'
+      PAGES_PER_SEARCH: '2'
+      SCANS_PER_RUN: '2'
+      DIAGNOSTIC_ONLY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Scan new adverts and ask Gemini only for new candidates
+        run: npm run monitor
