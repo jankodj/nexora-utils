@@ -25,10 +25,12 @@ const pagesPerSearch = Math.min(3, Math.max(1, Number(process.env.PAGES_PER_SEAR
 const page = await chromium.launch({headless:true});
 const sentInRun = new Set();
 const failures = [];
+const warnings=[];
+const navRetry=async(tab,url)=>{for(let i=0;i<2;i++){try{return await tab.goto(url,{waitUntil:'commit',timeout:18000});}catch(e){if(i===1)throw e;await sleep(900*(i+1));}}};
 
 
 async function fetchListing(browserPage,url) {
- const response = await browserPage.goto(url,{waitUntil:'domcontentloaded',timeout:35000});
+ const response = await navRetry(browserPage,url);
  await browserPage.waitForTimeout(2200);
  const status = response?.status();
  if(status !== 200) throw Error(`KP listing HTTP ${status} ${url}`);
@@ -81,6 +83,19 @@ async function fetchListing(browserPage,url) {
    sortDiagnostic.nearby=await browserPage.locator('button,[role="button"]').allTextContents().then(x=>x.filter(v=>/novije|sortiraj/i.test(v)).slice(0,8)).catch(()=>[]);
  }
  sortDiagnostic.urlAfterSort=browserPage.url();
+ // Clicking Novije resets KP pagination to page=1. Only accept a second page after
+ // navigating to page=2 again and confirming its URL, otherwise fail closed.
+ const wantedPage=Number(new URL(url).searchParams.get('page')||1);
+ if(wantedPage>1){
+   const settled=new URL(browserPage.url());
+   if(Number(settled.searchParams.get('page')||1)!==wantedPage){
+     settled.searchParams.set('page',String(wantedPage));
+     await navRetry(browserPage,settled.toString());
+     await browserPage.waitForTimeout(1100);
+   }
+   const actual=Number(new URL(browserPage.url()).searchParams.get('page')||1);
+   if(actual!==wantedPage)throw new Error('PAGINATION_UNVERIFIED: expected page '+wantedPage+' got '+actual);
+ }
  const result = await browserPage.evaluate(() => {
   const clockPath = svg => [...svg.querySelectorAll('path')].some(p => /M8\s*15\.5C11\.866|M7\.5\s*7\.5V5\.5/.test(p.getAttribute('d')||''));
   const ids = new Map();
@@ -118,7 +133,7 @@ async function fetchListing(browserPage,url) {
 }
 
 async function details(browserPage,ad) {
- const response=await browserPage.goto(ad.url,{waitUntil:'domcontentloaded',timeout:35000});
+ const response=await navRetry(browserPage,ad.url);
  await browserPage.waitForTimeout(1200);
  if(response?.status()!==200)throw Error(`KP advert HTTP ${response?.status()} id=${ad.id}`);
  const data=await browserPage.evaluate(()=>{
@@ -160,13 +175,13 @@ try{
     console.log(JSON.stringify({event:'listing',round,pageNumber,url,status:result.status,links:result.countLinks,clockCards:result.clockAds.length,sorting:result.sorting,sortDiagnostic:result.sortDiagnostic,sortLabel:result.sortLabel,firstIds:result.clockAds.slice(0,6).map(a=>a.id),debug:result.debug,finalUrl:result.finalUrl}));
     found=result.clockAds.filter(a=>!sentInRun.has(a.id)).slice(0,maxAds);
     if (result.sorting === 'unverified') console.warn('SORT_UNVERIFIED: list may not show newest adverts; review sortDiagnostic.');
-   }catch(e){failures.push(String(e));console.error('LISTING_ERROR',String(e));await tab.close();continue;}
+   }catch(e){warnings.push(String(e));console.warn('LISTING_WARNING',String(e));await tab.close();continue;}
    await tab.close();
    const ads=[];
    for(const ad of found){
     const dtab=await page.newPage({locale:'sr-RS'});
     try{const full=await details(dtab,ad);if(full.descriptionVerified){ads.push(full);}else console.log(JSON.stringify({event:'no_verified_description',id:ad.id}));}
-    catch(e){failures.push(`${ad.id}: ${String(e)}`);console.error('DETAIL_ERROR',ad.id,String(e));}
+    catch(e){warnings.push(`${ad.id}: ${String(e)}`);console.warn('DETAIL_WARNING',ad.id,String(e));}
     finally{await dtab.close();}
    }
    console.log(JSON.stringify({event:'batch',round,pageNumber,source:url,verified:ads.length,diagnostic}));
@@ -175,7 +190,7 @@ try{
      const chunk=ads.slice(i,i+15);
      const result=await ingest(chunk);
      for(const ad of chunk)sentInRun.add(ad.id);
-     if(result.errors?.length)failures.push(...result.errors);
+     if(result.errors?.length)warnings.push(...result.errors);
      console.log(JSON.stringify({event:'worker_response',...result}));
      if(result.errors?.length)console.warn('WORKER_ERRORS',JSON.stringify(result.errors));
     }
@@ -185,5 +200,5 @@ try{
   if(round<scans)await sleep(60000);
  }
 } finally {await page.close();}
-console.log(JSON.stringify({event:'summary',detailsSent:sentInRun.size,errors:failures.slice(0,10),pagesPerSearch,rounds:scans,sortNote:'Novije checked by UI; first pages only, not exhaustive across all KP results.'}));
+console.log(JSON.stringify({event:'summary',detailsSent:sentInRun.size,warnings:warnings.slice(0,10),errors:failures.slice(0,10),pagesPerSearch,rounds:scans,sortNote:'Novije checked by UI; each page must be confirmed, not exhaustive.'}));
 if(failures.length)process.exitCode=1;
