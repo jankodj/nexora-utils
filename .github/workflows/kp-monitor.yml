@@ -16,7 +16,7 @@ jobs:
       WORKER_URL: ${{ secrets.WORKER_URL }}
       INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
       MAX_ADS: '12'
-      PAGES_PER_SEARCH: '2'
+      PAGES_PER_SEARCH: '1'
       SCANS_PER_RUN: '2'
       DIAGNOSTIC_ONLY: 'false'
     steps:
