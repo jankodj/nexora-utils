@@ -19,7 +19,7 @@ const listings = [
 ];
 const clock = /M8\s*15\.5C11\.866|M7\.5\s*7\.5V5\.5/;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const maxAds = Math.min(25, Math.max(1, Number(process.env.MAX_ADS || '12')));
+const maxAds = Math.min(40, Math.max(1, Number(process.env.MAX_ADS || '25')));
 const scans = Math.min(5, Math.max(1, Number(process.env.SCANS_PER_RUN || '3')));
 const pagesPerSearch = Math.min(3, Math.max(1, Number(process.env.PAGES_PER_SEARCH || '2')));
 const page = await chromium.launch({headless:true});
@@ -173,7 +173,7 @@ try{
    try{
     const result=await fetchListing(tab,url);
     console.log(JSON.stringify({event:'listing',round,pageNumber,url,status:result.status,links:result.countLinks,clockCards:result.clockAds.length,sorting:result.sorting,sortDiagnostic:result.sortDiagnostic,sortLabel:result.sortLabel,firstIds:result.clockAds.slice(0,6).map(a=>a.id),debug:result.debug,finalUrl:result.finalUrl}));
-    found=result.clockAds.filter(a=>!sentInRun.has(a.id)).slice(0,maxAds);
+    found=result.clockAds.filter(a=>!sentInRun.has(a.id)).sort((a,b)=>Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520/i.test(b.title))-Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520/i.test(a.title))).slice(0,maxAds);
     if (result.sorting === 'unverified') console.warn('SORT_UNVERIFIED: list may not show newest adverts; review sortDiagnostic.');
    }catch(e){warnings.push(String(e));console.warn('LISTING_WARNING',String(e));await tab.close();continue;}
    await tab.close();
