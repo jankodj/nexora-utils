@@ -139,19 +139,19 @@ async function details(browserPage,ad) {
  const data=await browserPage.evaluate(()=>{
   const candidates=[];
   for(const el of document.querySelectorAll('[class*="description"], [class*="Description"], [itemprop="description"]')){
-   const s=(el.innerText||el.textContent||'').trim(); if(s.length>=30&&s.length<15000)candidates.push(s);
+   const s=(el.innerText||el.textContent||'').trim(); if(s.length>=8&&s.length<15000)candidates.push(s);
   }
   const raw=(document.body?.innerText||'');
   const start=raw.search(/Opis oglasa|Opis proizvoda/i);
-  if(start>=0){const after=raw.slice(start).replace(/^.{0,35}(?:Opis oglasa|Opis proizvoda)\s*/i,'');const end=after.search(/\n(?:O prodavcu|Oglas postavljen|Postavi pitanje|Prijavi oglas|Slični oglasi|Dostava|Lokacija prodavca)\b/i);const cut=(end>=50?after.slice(0,end):after.slice(0,8000)).trim();if(cut.length>=30)candidates.push(cut);}
+  if(start>=0){const after=raw.slice(start).replace(/^.{0,35}(?:Opis oglasa|Opis proizvoda)\s*/i,'');const end=after.search(/\n(?:O prodavcu|Oglas postavljen|Postavi pitanje|Prijavi oglas|Slični oglasi|Dostava|Lokacija prodavca|Prethodni oglas|Pošaljite poruku)\b/i);const cut=(end>=50?after.slice(0,end):after.slice(0,8000)).trim();if(cut.length>=8)candidates.push(cut);}
   for(const script of document.querySelectorAll('script[type="application/ld+json"], script#__NEXT_DATA__')){
-   try{const obj=JSON.parse(script.textContent);const walk=(v,d=0)=>{if(d>12||!v)return;if(Array.isArray(v)){for(const x of v.slice(0,100))walk(x,d+1);return;}if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/^(description|opis|adDescription)$/i.test(k)&&typeof x==='string'&&x.length>=30&&x.length<15000)candidates.push(x);else if(typeof x==='object')walk(x,d+1);}}};walk(obj);}catch{}
+   try{const obj=JSON.parse(script.textContent);const walk=(v,d=0)=>{if(d>12||!v)return;if(Array.isArray(v)){for(const x of v.slice(0,100))walk(x,d+1);return;}if(typeof v==='object'){for(const [k,x] of Object.entries(v)){if(/^(description|opis|adDescription)$/i.test(k)&&typeof x==='string'&&x.length>=8&&x.length<15000)candidates.push(x);else if(typeof x==='object')walk(x,d+1);}}};walk(obj);}catch{}
   }
   const description=candidates.sort((a,b)=>b.length-a.length)[0]||'';
   return {description:description.slice(0,12000),hasDescriptionHeading:/Opis oglasa|Opis proizvoda/i.test(raw),candidateCount:candidates.length,title:document.title};
  });
  // Fail closed if content could not be verified. Do not substitute SEO preview for full description.
- const verified=data.description.length>=30 && (data.hasDescriptionHeading || data.candidateCount>0);
+ const verified=data.description.length>=8 && (data.hasDescriptionHeading || data.candidateCount>0);
  return {...ad,description:data.description,descriptionVerified:verified};
 }
 
@@ -173,7 +173,7 @@ try{
    try{
     const result=await fetchListing(tab,url);
     console.log(JSON.stringify({event:'listing',round,pageNumber,url,status:result.status,links:result.countLinks,clockCards:result.clockAds.length,sorting:result.sorting,sortDiagnostic:result.sortDiagnostic,sortLabel:result.sortLabel,firstIds:result.clockAds.slice(0,6).map(a=>a.id),debug:result.debug,finalUrl:result.finalUrl}));
-    found=result.clockAds.filter(a=>!sentInRun.has(a.id)).sort((a,b)=>Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520/i.test(b.title))-Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520/i.test(a.title))).slice(0,maxAds);
+    found=result.clockAds.filter(a=>!sentInRun.has(a.id)).sort((a,b)=>Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520|lap\s*top\s+za\s+delove|lap\s*top\s+delovi/i.test(b.title))-Number(/rtx\s*(?:30[56789]0|40[56789]0)|victus|precision\s*7520|lap\s*top\s+za\s+delove|lap\s*top\s+delovi/i.test(a.title))).slice(0,maxAds);
     if (result.sorting === 'unverified') console.warn('SORT_UNVERIFIED: list may not show newest adverts; review sortDiagnostic.');
    }catch(e){warnings.push(String(e));console.warn('LISTING_WARNING',String(e));await tab.close();continue;}
    await tab.close();
@@ -188,11 +188,15 @@ try{
    if(ads.length && !diagnostic){
     for(let i=0;i<ads.length;i+=15){
      const chunk=ads.slice(i,i+15);
-     const result=await ingest(chunk);
-     for(const ad of chunk)sentInRun.add(ad.id);
-     if(result.errors?.length)warnings.push(...result.errors);
-     console.log(JSON.stringify({event:'worker_response',...result}));
-     if(result.errors?.length)console.warn('WORKER_ERRORS',JSON.stringify(result.errors));
+     try {
+       const result=await ingest(chunk);
+       // Worker successfully acknowledged the batch. It may defer some ads for later.
+       for(const ad of chunk)sentInRun.add(ad.id);
+       if(result.errors?.length)warnings.push(...result.errors);
+       console.log(JSON.stringify({event:'worker_response',...result}));
+       if(result.errors?.length)console.warn('WORKER_ERRORS',JSON.stringify(result.errors));
+     } catch(e){warnings.push(`INGEST: ${String(e)}`);console.warn('INGEST_WARNING',String(e));}
+
     }
    }
    }
